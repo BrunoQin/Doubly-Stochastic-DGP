@@ -65,7 +65,7 @@ class Layer(Parameterized):
         """
         if full_cov is True:
             f = lambda a: self.conditional_ND(a, full_cov=full_cov)
-            mean, var = tf.map_fn(f, X, dtype=(tf.float64, tf.float64))
+            mean, var = tf.map_fn(f, X, dtype=(settings.float_type, settings.float_type))
             return tf.stack(mean), tf.stack(var)
         else:
             S, N, D = tf.shape(X)[0], tf.shape(X)[1], tf.shape(X)[2]
@@ -143,10 +143,10 @@ class SVGP_Layer(Layer):
         Layer.__init__(self, input_prop_dim, **kwargs)
         self.num_inducing = Z.shape[0]
 
-        q_mu = np.zeros((self.num_inducing, num_outputs))
+        q_mu = np.zeros((self.num_inducing, num_outputs), dtype=settings.float_type)
         self.q_mu = Parameter(q_mu)
 
-        q_sqrt = np.tile(np.eye(self.num_inducing)[None, :, :], [num_outputs, 1, 1])
+        q_sqrt = np.tile(np.eye(self.num_inducing, dtype=settings.float_type)[None, :, :], [num_outputs, 1, 1])
         transform = transforms.LowerTriangular(self.num_inducing, num_matrices=num_outputs)
         self.q_sqrt = Parameter(q_sqrt, transform=transform)
 
@@ -159,7 +159,8 @@ class SVGP_Layer(Layer):
 
         if not self.white:  # initialize to prior
             Ku = self.kern.compute_K_symm(Z)
-            Lu = np.linalg.cholesky(Ku + np.eye(Z.shape[0])*settings.jitter)
+            Lu = np.linalg.cholesky(Ku + np.eye(Z.shape[0],
+                dtype=settings.float_type) * settings.jitter)
             self.q_sqrt = np.tile(Lu[None, :, :], [num_outputs, 1, 1])
 
         self.needs_build_cholesky = True
@@ -249,7 +250,7 @@ class SVGP_Layer(Layer):
 class SGPMC_Layer(SVGP_Layer):
     def __init__(self, *args, **kwargs):
         """
-        A sparse layer for sampling over the inducing point values 
+        A sparse layer for sampling over the inducing point values
         """
         SVGP_Layer.__init__(self, *args, **kwargs)
         self.q_mu.prior = Gaussian_prior(0., 1.)
@@ -345,7 +346,7 @@ class GPR_Layer(Collapsed_Layer):
 class SGPR_Layer(Collapsed_Layer):
     def __init__(self, kern, Z, num_outputs, mean_function, **kwargs):
         """
-        A sparse variational GP layer with a Gaussian likelihood, where the 
+        A sparse variational GP layer with a Gaussian likelihood, where the
         GP is integrated out
 
         :kern: The kernel for the layer (input_dim = D_in)
