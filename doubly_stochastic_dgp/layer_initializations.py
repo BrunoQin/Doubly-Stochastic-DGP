@@ -52,28 +52,3 @@ def init_layers_linear(X, Y, Z, kernels,
     return layers
 
 
-def init_layers_input_prop(X, Y, Z, kernels,
-                           num_outputs=None,
-                           mean_function=Zero(),
-                           Layer=SVGP_Layer,
-                           white=False):
-    num_outputs = num_outputs or Y.shape[1]
-    D = X.shape[1]
-    M = Z.shape[0]
-
-    layers = []
-
-    for kern_in, kern_out in zip(kernels[:-1], kernels[1:]):
-        dim_in = kern_in.input_dim
-        dim_out = kern_out.input_dim - D
-        std_in = kern_in.variance.read_value()**0.5
-        pad = np.random.randn(M, dim_in - D) * 2. * std_in
-        Z_padded = np.concatenate([Z, pad], 1)
-        layers.append(Layer(kern_in, Z_padded, dim_out, Zero(), white=white, input_prop_dim=D))
-
-    dim_in = kernels[-1].input_dim
-    std_in = kernels[-2].variance.read_value()**0.5 if dim_in > D else 1.
-    pad = np.random.randn(M, dim_in - D) * 2. * std_in
-    Z_padded = np.concatenate([Z, pad], 1)
-    layers.append(Layer(kernels[-1], Z_padded, num_outputs, mean_function, white=white))
-    return layers

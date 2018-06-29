@@ -129,10 +129,10 @@ class DGP_Base(Model):
 class DGP_Quad(DGP_Base):
     """
     A DGP with quadrature instead of MC sampling. This scales exponentially in the sum of the inner layer dims
-    
+
     The key ref is:
     [in progress]
-    
+
     """
     def __init__(self, *args, H=100, **kwargs):
         DGP_Base.__init__(self, *args, **kwargs)
@@ -159,7 +159,7 @@ class DGP_Quad(DGP_Base):
     def E_log_p_Y(self, X, Y):
         """
         Calculate the expectation of the data log likelihood under the variational distribution
-         with quadrature 
+         with quadrature
         """
         _, Fmeans, Fvars = self.propagate(X, zs=self.gh_x, full_cov=False, S=self.H**self.D_quad)
         var_exp = self.likelihood.variational_expectations(Fmeans[-1], Fvars[-1], Y)  # S, N, D

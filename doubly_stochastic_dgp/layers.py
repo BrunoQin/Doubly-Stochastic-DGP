@@ -68,7 +68,8 @@ class Layer(Parameterized):
             mean, var = tf.map_fn(f, X, dtype=(settings.float_type, settings.float_type))
             return tf.stack(mean), tf.stack(var)
         else:
-            S, N, D = tf.shape(X)[0], tf.shape(X)[1], tf.shape(X)[2]
+            X_shape = tf.shape(X)
+            S, N, D = X_shape[0], X_shape[1], X_shape[2]
             X_flat = tf.reshape(X, [S * N, D])
             mean, var = self.conditional_ND(X_flat)
             return [tf.reshape(m, [S, N, self.num_outputs]) for m in [mean, var]]
