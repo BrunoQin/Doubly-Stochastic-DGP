@@ -15,8 +15,9 @@
 import tensorflow as tf
 import numpy as np
 
+import gpflow
 from gpflow.params import Parameter, Parameterized
-from gpflow.conditionals import conditional
+from gpflow.conditionals import conditional, Kuu
 from gpflow.features import InducingPoints
 from gpflow.kullback_leiblers import gauss_kl
 from gpflow.priors import Gaussian as Gaussian_prior
@@ -25,8 +26,8 @@ from gpflow import settings
 from gpflow.models.gplvm import BayesianGPLVM
 from gpflow.expectations import expectation
 from gpflow.probability_distributions import DiagonalGaussian
-from gpflow import params_as_tensors
 from gpflow.logdensities import multivariate_normal
+from gpflow import conditionals
 
 
 
@@ -121,8 +122,10 @@ class Layer(Parameterized):
 
 
 class SVGP_Layer(Layer):
-    def __init__(self, kern, Z, num_outputs, mean_function,
-                 white=False, input_prop_dim=None, **kwargs):
+    def __init__(self, kern, num_outputs, mean_function,
+                Z=None,
+                feature=None,
+                white=False, input_prop_dim=None, **kwargs):
         """
         A sparse variational GP layer in whitened representation. This layer holds the kernel,
         variational parameters, inducing points and mean function.
@@ -142,7 +145,10 @@ class SVGP_Layer(Layer):
         :return:
         """
         Layer.__init__(self, input_prop_dim, **kwargs)
-        self.num_inducing = Z.shape[0]
+        if feature is None:
+            feature = InducingPoints(Z)
+
+        self.num_inducing = len(feature)
 
         q_mu = np.zeros((self.num_inducing, num_outputs), dtype=settings.float_type)
         self.q_mu = Parameter(q_mu)
@@ -151,7 +157,7 @@ class SVGP_Layer(Layer):
         transform = transforms.LowerTriangular(self.num_inducing, num_matrices=num_outputs)
         self.q_sqrt = Parameter(q_sqrt, transform=transform)
 
-        self.feature = InducingPoints(Z)
+        self.feature = feature
         self.kern = kern
         self.mean_function = mean_function
 
@@ -159,18 +165,18 @@ class SVGP_Layer(Layer):
         self.white = white
 
         if not self.white:  # initialize to prior
-            Ku = self.kern.compute_K_symm(Z)
-            Lu = np.linalg.cholesky(Ku + np.eye(Z.shape[0],
-                dtype=settings.float_type) * settings.jitter)
-            self.q_sqrt = np.tile(Lu[None, :, :], [num_outputs, 1, 1])
+            with gpflow.params_as_tensors_for(feature):
+                Ku = conditionals.Kuu(feature, self.kern, jitter=settings.jitter)
+                Lu = tf.linalg.cholesky(Ku)
+                Lu = self.enquire_session().run(Lu)
+                self.q_sqrt = np.tile(Lu[None, :, :], [num_outputs, 1, 1])
 
         self.needs_build_cholesky = True
 
-    @params_as_tensors
     def build_cholesky_if_needed(self):
         # make sure we only compute this once
         if self.needs_build_cholesky:
-            self.Ku = self.feature.Kuu(self.kern, jitter=settings.jitter)
+            self.Ku = conditionals.Kuu(self.feature, self.kern, jitter=settings.jitter)
             self.Lu = tf.cholesky(self.Ku)
             self.Ku_tiled = tf.tile(self.Ku[None, :, :], [self.num_outputs, 1, 1])
             self.Lu_tiled = tf.tile(self.Lu[None, :, :], [self.num_outputs, 1, 1])
@@ -180,10 +186,7 @@ class SVGP_Layer(Layer):
     def conditional_ND(self, X, full_cov=False):
         self.build_cholesky_if_needed()
 
-        # mmean, vvar = conditional(X, self.feature.Z, self.kern,
-        #             self.q_mu, q_sqrt=self.q_sqrt,
-        #             full_cov=full_cov, white=self.white)
-        Kuf = self.feature.Kuf(self.kern, X)
+        Kuf = conditionals.Kuf(self.feature, self.kern, X)
 
         A = tf.matrix_triangular_solve(self.Lu, Kuf, lower=True)
         if not self.white:
@@ -379,8 +382,8 @@ def gplvm_build_likelihood(self, X_mean, X_var, Y, variance):
 
         err = Y - self.mean_function(X_mean)
         Kdiag = self.kern.Kdiag(X_mean)
-        Kuf = self.feature.Kuf(self.kern, X_mean)
-        Kuu = self.feature.Kuu(self.kern, jitter=settings.numerics.jitter_level)
+        Kuf = conditionals.Kuf(self.feature, self.kern, X_mean)
+        Kuu = conditionals.Kuu(self.feature, self.kern, jitter=settings.numerics.jitter_level)
         L = tf.cholesky(Kuu)
         sigma = tf.sqrt(variance)
 
@@ -417,7 +420,7 @@ def gplvm_build_likelihood(self, X_mean, X_var, Y, variance):
             psi0 = tf.reduce_sum(expectation(pX, self.kern))
             psi1 = expectation(pX, (self.kern, self.feature))
             psi2 = tf.reduce_sum(expectation(pX, (self.kern, self.feature), (self.kern, self.feature)), axis=0)
-        Kuu = self.feature.Kuu(self.kern, jitter=settings.numerics.jitter_level)
+        Kuu = conditionals.Kuu(self.feature, self.kern, jitter=settings.numerics.jitter_level)
         L = tf.cholesky(Kuu)
         sigma2 = variance
         sigma = tf.sqrt(sigma2)
@@ -457,9 +460,9 @@ def gplvm_build_predict(self, Xnew, X_mean, X_var, Y, variance, full_cov=False):
         # SGPR
         num_inducing = len(self.feature)
         err = Y - self.mean_function(X_mean)
-        Kuf = self.feature.Kuf(self.kern, X_mean)
-        Kuu = self.feature.Kuu(self.kern, jitter=settings.numerics.jitter_level)
-        Kus = self.feature.Kuf(self.kern, Xnew)
+        Kuf = conditionals.Kuf(self.feature, self.kern, X_mean)
+        Kuu = conditionals.Kuu(self.feature, self.kern, jitter=settings.numerics.jitter_level)
+        Kus = conditionals.Kuf(self.feature, self.kern, Xnew)
         sigma = tf.sqrt(variance)
         L = tf.cholesky(Kuu)
         A = tf.matrix_triangular_solve(L, Kuf, lower=True) / sigma
@@ -496,11 +499,8 @@ def gplvm_build_predict(self, Xnew, X_mean, X_var, Y, variance, full_cov=False):
             psi1 = expectation(pX, (self.kern, self.feature))
             psi2 = tf.reduce_sum(expectation(pX, (self.kern, self.feature), (self.kern, self.feature)), axis=0)
 
-        # psi1 = expectation(pX, (self.kern, self.feature))
-        # psi2 = tf.reduce_sum(expectation(pX, (self.kern, self.feature), (self.kern, self.feature)), axis=0)
-
-        Kuu = self.feature.Kuu(self.kern, jitter=settings.numerics.jitter_level)
-        Kus = self.feature.Kuf(self.kern, Xnew)
+        Kuu = conditionals.Kuu(self.feature, self.kern, jitter=settings.numerics.jitter_level)
+        Kus = conditionals.Kuf(self.feature, self.kern, Xnew)
         sigma2 = variance
         sigma = tf.sqrt(sigma2)
         L = tf.cholesky(Kuu)
