@@ -125,7 +125,9 @@ class SVGP_Layer(Layer):
     def __init__(self, kern, num_outputs, mean_function,
                 Z=None,
                 feature=None,
-                white=False, input_prop_dim=None, **kwargs):
+                white=False, input_prop_dim=None,
+                q_mu=None,
+                q_sqrt=None, **kwargs):
         """
         A sparse variational GP layer in whitened representation. This layer holds the kernel,
         variational parameters, inducing points and mean function.
@@ -150,10 +152,12 @@ class SVGP_Layer(Layer):
 
         self.num_inducing = len(feature)
 
-        q_mu = np.zeros((self.num_inducing, num_outputs), dtype=settings.float_type)
+        if q_mu is None:
+            q_mu = np.zeros((self.num_inducing, num_outputs), dtype=settings.float_type)
         self.q_mu = Parameter(q_mu)
 
-        q_sqrt = np.tile(np.eye(self.num_inducing, dtype=settings.float_type)[None, :, :], [num_outputs, 1, 1])
+        if q_sqrt is None:
+            q_sqrt = np.tile(np.eye(self.num_inducing, dtype=settings.float_type)[None, :, :], [num_outputs, 1, 1])
         transform = transforms.LowerTriangular(self.num_inducing, num_matrices=num_outputs)
         self.q_sqrt = Parameter(q_sqrt, transform=transform)
 
