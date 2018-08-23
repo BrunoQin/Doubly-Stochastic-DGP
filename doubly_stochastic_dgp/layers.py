@@ -152,15 +152,6 @@ class SVGP_Layer(Layer):
 
         self.num_inducing = len(feature)
 
-        if q_mu is None:
-            q_mu = np.zeros((self.num_inducing, num_outputs), dtype=settings.float_type)
-        self.q_mu = Parameter(q_mu)
-
-        if q_sqrt is None:
-            q_sqrt = np.tile(np.eye(self.num_inducing, dtype=settings.float_type)[None, :, :], [num_outputs, 1, 1])
-        transform = transforms.LowerTriangular(self.num_inducing, num_matrices=num_outputs)
-        self.q_sqrt = Parameter(q_sqrt, transform=transform)
-
         self.feature = feature
         self.kern = kern
         self.mean_function = mean_function
@@ -168,12 +159,22 @@ class SVGP_Layer(Layer):
         self.num_outputs = num_outputs
         self.white = white
 
-        if not self.white:  # initialize to prior
-            with gpflow.params_as_tensors_for(feature):
-                Ku = conditionals.Kuu(feature, self.kern, jitter=settings.jitter)
-                Lu = tf.linalg.cholesky(Ku)
-                Lu = self.enquire_session().run(Lu)
-                self.q_sqrt = np.tile(Lu[None, :, :], [num_outputs, 1, 1])
+        if q_mu is None:
+            q_mu = np.zeros(self.num_inducing, num_outputs, dtype=settings.float_type)
+        self.q_mu = Parameter(q_mu)
+
+        if q_sqrt is None:
+            if not self.white:  # initialize to prior
+                with gpflow.params_as_tensors_for(feature):
+                    Ku = conditionals.Kuu(feature, self.kern, jitter=settings.jitter)
+                    Lu = tf.linalg.cholesky(Ku)
+                    Lu = self.enquire_session().run(Lu)
+                    q_sqrt = np.tile(Lu[None, :, :], [num_outputs, 1, 1])
+            else:
+                q_sqrt = np.tile(np.eye(self.num_inducing, dtype=settings.float_type)[None, :, :], [num_outputs, 1, 1])
+
+        transform = transforms.LowerTriangular(self.num_inducing, num_matrices=num_outputs)
+        self.q_sqrt = Parameter(q_sqrt, transform=transform)
 
         self.needs_build_cholesky = True
 
