@@ -160,7 +160,7 @@ class SVGP_Layer(Layer):
         self.white = white
 
         if q_mu is None:
-            q_mu = np.zeros(self.num_inducing, num_outputs, dtype=settings.float_type)
+            q_mu = np.zeros((self.num_inducing, num_outputs), dtype=settings.float_type)
         self.q_mu = Parameter(q_mu)
 
         if q_sqrt is None:
